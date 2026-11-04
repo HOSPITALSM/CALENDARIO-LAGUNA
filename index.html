@@ -241,7 +241,7 @@ calendarGridEl.addEventListener('pointerup', event => {
 calendarGridEl.addEventListener('pointercancel', () => {lastTouchDate='';lastTouchAt=0;clearTimeout(openTouchTimer)});
 document.getElementById('dateInput').value=selectedDate;syncShiftForm();go('calendar');renderCalendar();document.addEventListener('keydown',e=>{if(e.key==='Escape')closeShiftModal()});
 if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
- navigator.serviceWorker.register('./sw.js').catch(err=>console.error('No se pudo registrar el service worker:',err));
+ navigator.serviceWorker.register('./sw.js?v=2', {updateViaCache:'none'}).catch(err=>console.error('No se pudo registrar el service worker:',err));
 }
 </script>
 </body></html>
