@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#07111e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SwanneShift">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>SwanneShift · versión integral base</title>
 <style>
 :root{--bg:#050b13;--panel:#0b1a2a;--panel2:#10263a;--line:#24435b;--cyan:#20d7f4;--blue:#168bff;--violet:#9364ff;--text:#edf8ff;--muted:#91a9bd;--green:#38e6b1;--shadow:0 12px 32px #0009,inset 0 1px #ffffff12}
@@ -63,6 +68,28 @@ main{min-width:0}.topbar{display:flex;justify-content:space-between;align-items:
  .topbar{min-height:44px;margin:2px 2px 10px!important}
  .header-logo{width:min(82vw,270px);height:44px}
 }
+
+/* Barra compacta del calendario: mes, Hoy y Añadir en una sola fila */
+.calendar-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 4px;min-width:0}
+.calendar-toolbar .monthnav{gap:6px;min-width:0}
+.calendar-toolbar .monthnav b{font-size:16px;white-space:nowrap}
+.calendar-toolbar .monthnav button{min-width:34px;min-height:36px;padding:5px 9px}
+.calendar-toolbar-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.calendar-toolbar-actions button{min-height:36px;padding:7px 10px;white-space:nowrap}
+.calendar-legend{text-align:right;font-size:10px;margin:0 3px 7px}
+@media(max-width:800px){
+ .topbar{margin:0 2px 5px!important;min-height:38px!important}
+ .header-logo{height:38px;width:min(72vw,235px)}
+ .calendar-toolbar{margin:0 1px 3px;gap:5px}
+ .calendar-toolbar .monthnav{gap:4px}
+ .calendar-toolbar .monthnav b{font-size:14px}
+ .calendar-toolbar .monthnav button{min-width:32px;min-height:34px;padding:4px 7px}
+ .calendar-toolbar-actions{gap:5px}
+ .calendar-toolbar-actions button{min-height:34px;padding:6px 8px;font-size:11px}
+ .calendar-legend{margin-bottom:5px;font-size:9px}
+ .calendar-card{margin-top:0!important}
+}
+
 </style>
 </head>
 <body>
@@ -93,7 +120,11 @@ main{min-width:0}.topbar{display:flex;justify-content:space-between;align-items:
   </div>
  </section>
  <section class="page active" id="calendar">
-  <div class="sectionhead"><div><h2>Calendario</h2><div class="muted calendar-intro" style="font-size:11px">Toca una fecha para ver o agregar tus turnos</div></div><div style="display:flex;gap:8px;align-items:center"><button class="secondary" onclick="goToday()">Hoy</button><button class="primary" onclick="openDayAdder()">＋ Añadir a este día</button></div></div><div class="sectionhead" style="margin-top:8px"><div class="monthnav"><button onclick="changeMonth(-1)">‹</button><b id="monthTitle">Noviembre 2026</b><button onclick="changeMonth(1)">›</button></div><span class="muted" style="font-size:10px">● Hospital &nbsp; <span style="color:#a98aff">●</span> Ecotem</span></div>
+  <div class="calendar-toolbar">
+   <div class="monthnav"><button aria-label="Mes anterior" onclick="changeMonth(-1)">‹</button><b id="monthTitle">Noviembre 2026</b><button aria-label="Mes siguiente" onclick="changeMonth(1)">›</button></div>
+   <div class="calendar-toolbar-actions"><button class="secondary" onclick="goToday()">Hoy</button><button class="primary" onclick="openDayAdder()">＋ Añadir</button></div>
+  </div>
+  <div class="calendar-legend muted">● Hospital &nbsp; <span style="color:#a98aff">●</span> Ecotem</div>
   <article class="card calendar-card"><div class="calendar" id="calendarGrid"></div></article>
   <article class="card day-editor" style="margin-top:14px"><div class="sectionhead"><div><div class="eyebrow">TUS TURNOS DE</div><h3 id="selectedTitle" style="margin:4px 0 0">Turnos del día</h3></div><button class="secondary" onclick="openCustomEditor()">⚙ Editar horario</button></div><div class="day-list-label">Turnos registrados</div><div id="dayList" class="muted">Selecciona una fecha.</div><div class="day-note"><label for="dayNoteInput">NOTA DEL DÍA</label><textarea id="dayNoteInput" placeholder="Escribe aquí una guardia, cambio, pendiente o cualquier detalle de esta fecha..."></textarea><div class="note-actions"><span class="note-saved" id="noteSaved"></span><button class="secondary" onclick="saveDayNote()">Guardar nota</button></div></div></article>
  </section>
@@ -116,7 +147,7 @@ main{min-width:0}.topbar{display:flex;justify-content:space-between;align-items:
  </section>
  <section class="page" id="tools">
   <div class="sectionhead"><div><h2>Herramientas</h2><div class="muted" style="font-size:11px">Utilidades para gestionar tus roles</div></div></div>
-  <div class="grid metrics"><article class="card"><h3>⇩ Copia de seguridad</h3><p class="muted">Guarda una copia de tus turnos para recuperarlos después.</p><button class="primary" onclick="backup()">Exportar datos</button></article><article class="card"><h3>◷ Recordatorios</h3><p class="muted">Puedes activar el permiso del navegador. Los avisos programados fiables, incluso con la app cerrada, necesitan un servicio de notificaciones.</p><button class="secondary" onclick="requestNotificationPermission()">Activar permiso del navegador</button><p id="notificationStatus" class="muted" style="font-size:11px;margin-top:8px">Estado: sin configurar</p></article><article class="card"><h3>⚙ Privacidad y sincronización</h3><p class="muted">Por ahora los turnos se guardan solo en este navegador. Para sincronizar PC y celular hay que conectar una base de datos privada en la nube. No se debe reutilizar la base de datos del PACS.</p><p class="muted" style="font-size:11px">Estado de nube: pendiente de configurar.</p></article></div>
+  <div class="grid metrics"><article class="card"><h3>⇩ Copia de seguridad</h3><p class="muted">Guarda una copia de tus turnos para recuperarlos después.</p><button class="primary" onclick="backup()">Exportar datos</button></article><article class="card"><h3>◷ Recordatorios</h3><p class="muted">Recordatorio previsto: una notificación a las 7:00 p. m. del día anterior al inicio de cada bloque de turnos consecutivos del HCMP. El envío automático aún requiere conectar la nube.</p><button class="secondary" onclick="requestNotificationPermission()">Permitir notificaciones</button><p id="notificationStatus" class="muted" style="font-size:11px;margin-top:8px">Estado: sin configurar</p></article><article class="card"><h3>⚙ Privacidad y sincronización</h3><p class="muted">Por ahora los turnos se guardan solo en este navegador. Para sincronizar PC y celular hay que conectar una base de datos privada en la nube. No se debe reutilizar la base de datos del PACS.</p><p class="muted" style="font-size:11px">Estado de nube: pendiente de conectar para sincronizar turnos y programar notificaciones aunque la aplicación esté cerrada.</p></article></div>
  </section>
 </main>
 </div>
@@ -184,5 +215,8 @@ function previewRoleFile(event){const f=event.target.files[0];const info=documen
 function requestNotificationPermission(){if(!('Notification' in window)){document.getElementById('notificationStatus').textContent='Este navegador no admite notificaciones.';return}Notification.requestPermission().then(p=>{document.getElementById('notificationStatus').textContent='Estado: '+(p==='granted'?'permiso concedido':p==='denied'?'permiso bloqueado':'sin permiso')})}
 function backup(){let blob=new Blob([JSON.stringify(shifts,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='swanneshift-respaldo.json';a.click();URL.revokeObjectURL(url)}
 document.getElementById('dateInput').value=selectedDate;syncShiftForm();go('calendar');renderCalendar();document.addEventListener('keydown',e=>{if(e.key==='Escape')closeShiftModal()});
+if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
+ navigator.serviceWorker.register('./sw.js').catch(err=>console.error('No se pudo registrar el service worker:',err));
+}
 </script>
 </body></html>
