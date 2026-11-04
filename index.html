@@ -215,30 +215,28 @@ function updateStats(){let month=viewDate.getMonth(),year=viewDate.getFullYear()
 function previewRoleFile(event){const f=event.target.files[0];const info=document.getElementById('roleFileInfo'),preview=document.getElementById('rolePreview');preview.innerHTML='';if(!f){info.textContent='Aún no has seleccionado ningún archivo.';return}info.textContent=`Archivo seleccionado: ${f.name} · ${(f.size/1024/1024).toFixed(2)} MB`;if(f.type.startsWith('image/')){const img=document.createElement('img');img.src=URL.createObjectURL(f);img.style.cssText='max-width:100%;max-height:280px;border-radius:12px;border:1px solid #31536b';preview.appendChild(img)}else{preview.textContent='PDF seleccionado. La lectura automática y extracción de turnos aún requiere integrar el servicio de IA/OCR.'}}
 function requestNotificationPermission(){if(!('Notification' in window)){document.getElementById('notificationStatus').textContent='Este navegador no admite notificaciones.';return}Notification.requestPermission().then(p=>{document.getElementById('notificationStatus').textContent='Estado: '+(p==='granted'?'permiso concedido':p==='denied'?'permiso bloqueado':'sin permiso')})}
 function backup(){let blob=new Blob([JSON.stringify(shifts,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='swanneshift-respaldo.json';a.click();URL.revokeObjectURL(url)}
-// Doble toque táctil: el primer toque solo selecciona; el segundo toque rápido
-// sobre la misma fecha abre el menú. En mouse se conserva el ondblclick nativo.
-let lastTouchDate = null;
-let lastTouchAt = 0;
+// Doble toque táctil: selecciona con el primero y abre el menú con el segundo.
+// La apertura se retrasa brevemente para que el click sintético no pulse una opción del modal.
+let lastTouchDate = '', lastTouchAt = 0, openTouchTimer = 0;
 const calendarGridEl = document.getElementById('calendarGrid');
-calendarGridEl.addEventListener('pointerup', function(event){
- if(event.pointerType !== 'touch') return;
+calendarGridEl.addEventListener('pointerup', event => {
+ if(event.pointerType !== 'touch' || document.getElementById('shiftModal').classList.contains('open')) return;
  const dayButton = event.target.closest('.day');
  if(!dayButton || !calendarGridEl.contains(dayButton)) return;
- const match = dayButton.getAttribute('onclick')?.match(/selectDay\('([^']+)'\)/);
- if(!match) return;
- const tappedDate = match[1];
+ const tappedDate = dayButton.getAttribute('onclick')?.match(/selectDay\('([^']+)'\)/)?.[1];
+ if(!tappedDate) return;
  const now = Date.now();
- if(lastTouchDate === tappedDate && now - lastTouchAt <= 400){
+ if(lastTouchDate === tappedDate && now - lastTouchAt <= 450){
   event.preventDefault();
-  lastTouchDate = null;
-  lastTouchAt = 0;
-  openDayOnDoubleClick(tappedDate);
+  clearTimeout(openTouchTimer);
+  lastTouchDate = ''; lastTouchAt = 0;
+  openTouchTimer = setTimeout(() => openDayOnDoubleClick(tappedDate), 220);
  } else {
-  lastTouchDate = tappedDate;
-  lastTouchAt = now;
+  clearTimeout(openTouchTimer);
+  lastTouchDate = tappedDate; lastTouchAt = now;
  }
 }, {passive:false});
-calendarGridEl.addEventListener('pointercancel', function(){lastTouchDate=null;lastTouchAt=0;});
+calendarGridEl.addEventListener('pointercancel', () => {lastTouchDate='';lastTouchAt=0;clearTimeout(openTouchTimer)});
 document.getElementById('dateInput').value=selectedDate;syncShiftForm();go('calendar');renderCalendar();document.addEventListener('keydown',e=>{if(e.key==='Escape')closeShiftModal()});
 if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
  navigator.serviceWorker.register('./sw.js').catch(err=>console.error('No se pudo registrar el service worker:',err));
