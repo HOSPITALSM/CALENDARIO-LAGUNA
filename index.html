@@ -191,7 +191,7 @@ async function connectCloudAccount() {
   if (!email) return;
   const {error} = await cloudClient.auth.signInWithOtp({
     email: email.trim(),
-    options: { emailRedirectTo: location.origin + location.pathname }
+    options: { emailRedirectTo: 'https://hospitalsm.github.io/CALENDARIO-LAGUNA/' }
   });
   if (error) { cloudStatus('Error al enviar enlace: ' + error.message); alert('No se pudo enviar el enlace: ' + error.message); return; }
   cloudStatus('Revisa tu correo y abre el enlace en este dispositivo.');
