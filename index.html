@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#07111e">
@@ -150,7 +151,7 @@ main{min-width:0}.topbar{display:flex;justify-content:space-between;align-items:
  </section>
  <section class="page" id="tools">
   <div class="sectionhead"><div><h2>Herramientas</h2><div class="muted" style="font-size:11px">Utilidades para gestionar tus roles</div></div></div>
-  <div class="grid metrics"><article class="card"><h3>⇩ Copia de seguridad</h3><p class="muted">Guarda una copia de tus turnos para recuperarlos después.</p><button class="primary" onclick="backup()">Exportar datos</button></article><article class="card"><h3>◷ Recordatorios</h3><p class="muted">Recordatorio previsto: una notificación a las 7:00 p. m. del día anterior al inicio de cada bloque de turnos consecutivos del HCMP. El envío automático aún requiere conectar la nube.</p><button class="secondary" onclick="requestNotificationPermission()">Permitir notificaciones</button><p id="notificationStatus" class="muted" style="font-size:11px;margin-top:8px">Estado: sin configurar</p></article><article class="card"><h3>⚙ Privacidad y sincronización</h3><p class="muted">Por ahora los turnos se guardan solo en este navegador. Para sincronizar PC y celular hay que conectar una base de datos privada en la nube. No se debe reutilizar la base de datos del PACS.</p><p class="muted" style="font-size:11px">Estado de nube: pendiente de conectar para sincronizar turnos y programar notificaciones aunque la aplicación esté cerrada.</p></article></div>
+  <div class="grid metrics"><article class="card"><h3>⇩ Copia de seguridad</h3><p class="muted">Guarda una copia de tus turnos para recuperarlos después.</p><button class="primary" onclick="backup()">Exportar datos</button></article><article class="card"><h3>◷ Recordatorios</h3><p class="muted">Recordatorio previsto: una notificación a las 7:00 p. m. del día anterior al inicio de cada bloque de turnos consecutivos del HCMP. El envío automático aún requiere conectar la nube.</p><button class="secondary" onclick="requestNotificationPermission()">Permitir notificaciones</button><p id="notificationStatus" class="muted" style="font-size:11px;margin-top:8px">Estado: sin configurar</p></article><article class="card"><h3>⚙ Privacidad y sincronización</h3><p class="muted">Por ahora los turnos se guardan solo en este navegador. Para sincronizar PC y celular hay que conectar una base de datos privada en la nube. No se debe reutilizar la base de datos del PACS.</p><p class="muted" style="font-size:11px" id="cloudSyncStatus">Estado de nube: sin conectar.</p><button class="secondary" id="connectCloudButton" type="button" onclick="connectCloudAccount()">Conectar con correo (sin contraseña)</button><button class="secondary" type="button" onclick="syncCloudNow()" style="margin-left:6px">Sincronizar ahora</button></article></div>
  </section>
 </main>
 </div>
@@ -168,10 +169,152 @@ main{min-width:0}.topbar{display:flex;justify-content:space-between;align-items:
  </div>
 </div>
 <script>
+
+// --- Sincronización Radiology con Supabase ---
+const SUPABASE_URL = 'https://znteufkbxcwjzlywdjkv.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_enva9VNTuoUuuOoe9Cnu5A_Tf5IVHjQ';
+const cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let cloudUserId = null;
+let cloudBusy = false;
+let cloudReady = false;
+let cloudSyncTimer = null;
+function cloudStatus(message) {
+  const el = document.getElementById('cloudSyncStatus');
+  if (el) el.textContent = 'Estado de nube: ' + message;
+}
+function shiftKey(s) { return [s.date,s.center,s.type].join('|'); }
+function localShiftFromCloud(r) {
+  return {date:r.shift_date,center:r.center,type:r.shift_type,start:String(r.start_time).slice(0,5),end:String(r.end_time).slice(0,5),note:r.note||''};
+}
+async function connectCloudAccount() {
+  const email = prompt('Escribe el mismo correo que usarás en tu celular y PC. Te enviaremos un enlace de acceso; no necesitas contraseña.');
+  if (!email) return;
+  const {error} = await cloudClient.auth.signInWithOtp({
+    email: email.trim(),
+    options: { emailRedirectTo: location.origin + location.pathname }
+  });
+  if (error) { cloudStatus('Error al enviar enlace: ' + error.message); alert('No se pudo enviar el enlace: ' + error.message); return; }
+  cloudStatus('Revisa tu correo y abre el enlace en este dispositivo.');
+  alert('Te enviamos un enlace de acceso. Ábrelo desde este mismo dispositivo. Usa el mismo correo en tu otro dispositivo.');
+}
+async function cloudInitialize() {
+  try {
+    const {data:{session},error} = await cloudClient.auth.getSession();
+    if(error) throw error;
+    if(session?.user) {
+      cloudUserId = session.user.id;
+      await cloudMergeInitial();
+    } else {
+      cloudStatus('sin conectar. Pulsa «Conectar con correo» y usa el mismo correo en ambos dispositivos.');
+    }
+    cloudClient.auth.onAuthStateChange((_event, sessionNow) => {
+      if(sessionNow?.user) {
+        cloudUserId = sessionNow.user.id;
+        setTimeout(() => cloudMergeInitial(), 0);
+      } else {
+        cloudUserId = null; cloudReady = false;
+        cloudStatus('sesión cerrada.');
+      }
+    });
+  } catch(e) { console.error(e); cloudStatus('error: ' + e.message); }
+}
+async function cloudMergeInitial() {
+  if(!cloudUserId || cloudBusy) return;
+  cloudBusy = true; cloudReady = false;
+  try {
+    const {data:remote,error} = await cloudClient.from('radiology_shifts').select('*').eq('user_id',cloudUserId);
+    if(error) throw error;
+    const merged = new Map();
+    (remote||[]).forEach(r => merged.set(shiftKey(localShiftFromCloud(r)), localShiftFromCloud(r)));
+    shifts.forEach(s => merged.set(shiftKey(s), s));
+    shifts = Array.from(merged.values());
+    localStorage.setItem('swanneshift_shifts', JSON.stringify(shifts));
+    await cloudSaveShifts();
+    await cloudMergeNotes();
+    cloudReady = true;
+    cloudStatus('conectada. Turnos y notas sincronizados.');
+    renderCalendar();
+  } catch(e) {
+    console.error('Error de sincronización inicial:',e);
+    cloudStatus('error: ' + e.message);
+  } finally { cloudBusy = false; }
+}
+async function cloudSaveShifts() {
+  if(!cloudUserId) return;
+  const rows = shifts.map(s => ({
+    user_id:cloudUserId, shift_date:s.date, center:s.center, shift_type:s.type,
+    start_time:s.start, end_time:s.end, note:s.note||''
+  }));
+  if(rows.length) {
+    const {error} = await cloudClient.from('radiology_shifts')
+      .upsert(rows,{onConflict:'user_id,shift_date,center,shift_type'});
+    if(error) throw error;
+  }
+  const keep = new Set(shifts.map(shiftKey));
+  const {data:remote,error:readError} = await cloudClient.from('radiology_shifts')
+    .select('id,shift_date,center,shift_type').eq('user_id',cloudUserId);
+  if(readError) throw readError;
+  const obsolete = (remote||[]).filter(r => !keep.has([r.shift_date,r.center,r.shift_type].join('|'))).map(r=>r.id);
+  if(obsolete.length) {
+    const {error} = await cloudClient.from('radiology_shifts').delete().in('id',obsolete);
+    if(error) throw error;
+  }
+}
+async function cloudMergeNotes() {
+  if(!cloudUserId) return;
+  const {data:remote,error} = await cloudClient.from('radiology_day_notes').select('*').eq('user_id',cloudUserId);
+  if(error) throw error;
+  const remoteByDate = new Map((remote||[]).map(r=>[r.note_date,r]));
+  const merged = {...dayNotes};
+  for (const [date,r] of remoteByDate) {
+    const localStamp = Date.parse(dayNoteUpdated[date]||0) || 0;
+    const remoteStamp = Date.parse(r.updated_at||r.created_at||0) || 0;
+    if (!(date in merged) || remoteStamp > localStamp) {
+      merged[date] = r.note_text || '';
+      dayNoteUpdated[date] = r.updated_at || r.created_at || new Date().toISOString();
+    }
+  }
+  dayNotes = merged;
+  localStorage.setItem('swanneshift_daynotes',JSON.stringify(dayNotes));
+  localStorage.setItem('swanneshift_note_updated',JSON.stringify(dayNoteUpdated));
+  const rows = Object.entries(dayNotes).map(([date,note])=>({
+    user_id:cloudUserId,note_date:date,note_text:note,
+    updated_at:dayNoteUpdated[date] || new Date().toISOString()
+  }));
+  if(rows.length) {
+    const {error:upsertError} = await cloudClient.from('radiology_day_notes').upsert(rows,{onConflict:'user_id,note_date'});
+    if(upsertError) throw upsertError;
+  }
+}
+async function syncCloudNow() {
+  if(!cloudUserId) { await connectCloudAccount(); return; }
+  try {
+    await cloudSaveShifts();
+    await cloudMergeNotes();
+    cloudStatus('sincronización completada.');
+  } catch(e) { console.error(e); cloudStatus('error: '+e.message); }
+}
+function scheduleCloudSync() {
+  if(!cloudUserId || !cloudReady || cloudBusy) return;
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(async()=>{
+    try { await cloudSaveShifts(); await cloudMergeNotes(); cloudStatus('actualizada automáticamente.'); }
+    catch(e) { console.error(e); cloudStatus('error al sincronizar: '+e.message); }
+  },700);
+}
+
 let selectedType='MT', viewDate=new Date(), selectedDate=localDate(new Date()), statsPeriod='month';
 let shifts=JSON.parse(localStorage.getItem('swanneshift_shifts')||'[]');
 let dayNotes=JSON.parse(localStorage.getItem('swanneshift_daynotes')||'{}');
+let dayNoteUpdated=JSON.parse(localStorage.getItem('swanneshift_note_updated')||'{}');
 function localDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+// Detecta cambios locales sin alterar las funciones originales del calendario.
+const originalStorageSetItem = Storage.prototype.setItem;
+Storage.prototype.setItem = function(key,value) {
+  originalStorageSetItem.call(this,key,value);
+  if(key==='swanneshift_shifts' && typeof scheduleCloudSync==='function') scheduleCloudSync();
+  if(key==='swanneshift_daynotes' && typeof scheduleCloudSync==='function') scheduleCloudSync();
+};
 const titles={home:['Resumen','Un vistazo a tu actividad laboral.'],calendar:['Mi calendario','Tus turnos y tus días, de un vistazo.'],add:['Añadir turno','Registra una jornada de trabajo.'],stats:['Estadísticas','Revisa tus horas y turnos.'],tools:['Herramientas','Administra y respalda tus datos.']};
 function goToday(){let d=new Date();viewDate=new Date(d.getFullYear(),d.getMonth(),1);selectedDate=localDate(d);renderCalendar()}
 function goAddSelected(){openDayAdder()}
@@ -210,7 +353,7 @@ function renderCalendar(){let y=viewDate.getFullYear(),m=viewDate.getMonth(),fir
 function selectDay(date){selectedDate=date;renderCalendar()}
 function openDayOnDoubleClick(date){selectedDate=date;renderCalendar();openShiftModal()}
 function showDay(){document.getElementById('selectedTitle').textContent=new Date(selectedDate+'T12:00:00').toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long'});let items=shifts.filter(s=>s.date===selectedDate);document.getElementById('dayList').innerHTML=items.length?items.map((s,i)=>`<div class="next"><div style="min-width:0"><strong>${s.center==='Ecotem'?'ECOTEM':'HSMP'} · ${s.type}</strong><small>${s.type==='N'?'Turno nocturno · termina al día siguiente':s.type==='M'?'Mañana · HSMP':s.type==='T'?'Tarde · HSMP':s.center==='Ecotem'?'Mañana / tarde · Ecotem': 'Mañana / tarde · HSMP'}${s.note?' · '+s.note:''}</small></div><time>${s.start}–${s.end}</time><div class="shift-actions"><button class="secondary" onclick="editShift('${selectedDate}',${i})">Editar</button><button class="secondary" onclick="removeShift('${selectedDate}',${i})" aria-label="Eliminar turno">Quitar</button></div></div>`).join(''):'<span class="muted">No hay turnos registrados para este día.</span>';const note=document.getElementById('dayNoteInput');if(note){note.value=dayNotes[selectedDate]||'';document.getElementById('noteSaved').textContent=''}}
-function saveDayNote(){const value=document.getElementById('dayNoteInput').value.trim();if(value)dayNotes[selectedDate]=value;else delete dayNotes[selectedDate];localStorage.setItem('swanneshift_daynotes',JSON.stringify(dayNotes));document.getElementById('noteSaved').textContent='Nota guardada';}
+function saveDayNote(){const value=document.getElementById('dayNoteInput').value.trim();if(value){dayNotes[selectedDate]=value;dayNoteUpdated[selectedDate]=new Date().toISOString();}else{dayNotes[selectedDate]='';dayNoteUpdated[selectedDate]=new Date().toISOString();}localStorage.setItem('swanneshift_daynotes',JSON.stringify(dayNotes));localStorage.setItem('swanneshift_note_updated',JSON.stringify(dayNoteUpdated));document.getElementById('noteSaved').textContent='Nota guardada';}
 function editShift(date,i){let arr=shifts.filter(s=>s.date===date),target=arr[i],idx=shifts.indexOf(target);let old=document.getElementById('editShiftPanel');if(old)old.remove();let row=[...document.querySelectorAll('#dayList .next')][i];let panel=document.createElement('div');panel.id='editShiftPanel';panel.className='edit-inline';panel.innerHTML=`<div><label>HORA DE INICIO</label><input id="editStart" type="time" value="${target.start}"></div><div><label>HORA DE FIN</label><input id="editEnd" type="time" value="${target.end}"></div><div style="grid-column:1/-1"><label>NOTA</label><input id="editNote" value="${(target.note||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" placeholder="Nota opcional"></div><div class="edit-buttons"><button class="secondary" onclick="document.getElementById('editShiftPanel').remove()">Cancelar</button><button class="primary" onclick="saveEditedShift(${idx})">Guardar cambios</button></div>`;row.after(panel)}
 function saveEditedShift(idx){let start=document.getElementById('editStart').value,end=document.getElementById('editEnd').value;if(!start||!end)return alert('Completa ambas horas.');shifts[idx].start=start;shifts[idx].end=end;shifts[idx].note=document.getElementById('editNote').value;localStorage.setItem('swanneshift_shifts',JSON.stringify(shifts));renderCalendar()}
 function quickAdd(center,type){let exists=shifts.some(s=>s.date===selectedDate&&s.center===center&&s.type===type);if(exists){alert('Ese turno ya está registrado para este día.');return}let {start,end}=shiftHours(center,type);shifts.push({date:selectedDate,center,type,start,end,note:''});localStorage.setItem('swanneshift_shifts',JSON.stringify(shifts));renderCalendar()}
@@ -243,6 +386,7 @@ calendarGridEl.addEventListener('pointerup', event => {
 }, {passive:false});
 calendarGridEl.addEventListener('pointercancel', () => {lastTouchDate='';lastTouchAt=0;clearTimeout(openTouchTimer)});
 document.getElementById('dateInput').value=selectedDate;syncShiftForm();go('calendar');renderCalendar();document.addEventListener('keydown',e=>{if(e.key==='Escape')closeShiftModal()});
+cloudInitialize();
 
 // Instalación PWA: muestra el botón solo cuando Chrome ofrece el diálogo nativo.
 let deferredInstallPrompt = null;
