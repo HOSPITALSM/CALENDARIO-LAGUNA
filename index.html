@@ -1,0 +1,288 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101b22">
+<title>Mi Calendario de Turnos</title>
+<style>
+:root {
+  --bg:#101b22; --panel:#182830; --line:#30434b;
+  --text:#edf5f5; --muted:#9aafb5;
+  --green:#48d6a0; --blue:#64b9ee;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+font-family:Inter,Arial,sans-serif}
+header{padding:24px 5%;border-bottom:1px solid var(--line);
+background:linear-gradient(110deg,#122c31,#17232d)}
+header h1{margin:0;font-size:25px;letter-spacing:-1px}
+header p{color:var(--muted);margin:7px 0 0}
+main{max-width:1250px;margin:auto;padding:25px}
+.centers{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:22px}
+.center{padding:19px;border:1px solid var(--line);border-radius:15px;
+background:var(--panel)}
+.center h3{margin:0 0 8px}
+.center p{color:var(--muted);margin:0;font-size:13px}
+.center.hospital{border-top:3px solid var(--green)}
+.center.ecotem{border-top:3px solid var(--blue)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:20px}
+.panel{background:var(--panel);border:1px solid var(--line);
+border-radius:17px;padding:18px}
+.month{display:flex;align-items:center;justify-content:space-between;
+margin-bottom:20px}
+.month h2{font-size:21px;margin:0}
+button{cursor:pointer;border:0;border-radius:9px;padding:11px 15px;
+font-weight:600;background:#263b44;color:var(--text)}
+button.primary{background:var(--green);color:#09251d}
+button:hover{filter:brightness(1.12)}
+.week,.calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.week div{text-align:center;color:var(--muted);padding:8px 0;font-size:12px}
+.day{min-height:95px;padding:8px 5px;border:1px solid var(--line);
+border-radius:10px;background:#14242b;cursor:pointer;overflow:hidden}
+.day:hover,.day.selected{border:1px solid var(--green);
+background:#1d3538}
+.day.other{opacity:.35}
+.num{font-size:13px;font-weight:700;margin-bottom:7px}
+.tag{display:block;padding:4px 3px;margin:3px 0;border-radius:5px;
+font-size:10px;font-weight:800;text-align:center;overflow:hidden}
+.mt{background:#176c50;color:#aaffd7}
+.night{background:#51418a;color:#e0d6ff}
+.eco{background:#245b82;color:#c4e8ff}
+.legend{display:flex;gap:15px;flex-wrap:wrap;margin-top:18px;
+color:var(--muted);font-size:12px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;
+margin-right:5px}
+.details h3{margin-top:0}
+.entry{padding:12px 0;border-bottom:1px solid var(--line)}
+.entry strong{display:block;margin-bottom:5px}
+.entry small{color:var(--muted)}
+.entry button{padding:5px 8px;font-size:11px;margin-top:7px}
+.empty{color:var(--muted);font-size:13px;line-height:1.6}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+input,select{width:100%;padding:11px;border-radius:8px;
+border:1px solid var(--line);background:#101d24;color:white;margin:5px 0 13px}
+label{font-size:12px;color:var(--muted)}
+.modal{display:none;position:fixed;inset:0;background:#000b;
+align-items:center;justify-content:center;padding:15px;z-index:5}
+.modal.open{display:flex}
+.modalbox{width:100%;max-width:440px;max-height:90vh;overflow:auto;
+background:#1a2b33;border:1px solid var(--line);border-radius:17px;padding:22px}
+.modalbox h2{margin-top:0}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
+.summary{margin-top:18px;line-height:2;color:var(--muted);font-size:13px}
+@media(max-width:800px){
+ main{padding:14px}
+ .layout{grid-template-columns:1fr}
+ .centers{gap:9px}
+ .center{padding:13px}
+ .day{min-height:75px;padding:6px 3px}
+ .tag{font-size:9px}
+ .panel{padding:12px}
+ .month h2{font-size:17px}
+}
+</style>
+</head>
+<body>
+<header>
+<h1>Mi calendario laboral</h1>
+<p>Organización personal de turnos hospitalarios</p>
+</header>
+<main>
+<section class="centers">
+<div class="center hospital">
+<h3>Hospital San Martín</h3>
+<p>Rayos X · Turnos MT y N</p>
+</div>
+<div class="center ecotem">
+<h3>Ecotem</h3>
+<p>Tomografía · MT · 08:00 a 19:45</p>
+</div>
+</section>
+
+<div class="layout">
+<section class="panel">
+<div class="month">
+<button id="prev">‹</button>
+<h2 id="monthTitle"></h2>
+<button id="next">›</button>
+</div>
+<div class="week">
+<div>Lun</div><div>Mar</div><div>Mié</div>
+<div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
+</div>
+<div class="calendar" id="calendar"></div>
+<div class="legend">
+<span><i class="dot" style="background:#27b47e"></i>Hospital MT</span>
+<span><i class="dot" style="background:#7961ce"></i>Hospital N</span>
+<span><i class="dot" style="background:#438fc4"></i>Ecotem MT</span>
+</div>
+</section>
+
+<aside class="panel details">
+<h3 id="selectedTitle">Selecciona un día</h3>
+<div id="entries" class="empty">
+Selecciona una fecha del calendario para consultar o registrar tus turnos.
+</div>
+<div class="actions">
+<button class="primary" id="add">+ Añadir turno</button>
+</div>
+<div class="summary" id="summary"></div>
+</aside>
+</div>
+</main>
+
+<div class="modal" id="modal">
+<div class="modalbox">
+<h2 id="modalTitle">Nuevo turno</h2>
+<form id="shiftForm">
+<input type="hidden" id="editId">
+<label>Establecimiento</label>
+<select id="center">
+<option value="Hospital San Martín">Hospital San Martín – Rayos X</option>
+<option value="Ecotem">Ecotem – Tomografía</option>
+</select>
+<label>Tipo de turno</label>
+<select id="type">
+<option value="MT">MT – Mañana/Tarde</option>
+<option value="N">N – Noche</option>
+</select>
+<label>Hora de entrada</label>
+<input type="time" id="start" required>
+<label>Hora de salida</label>
+<input type="time" id="end" required>
+<label>Observaciones (opcional)</label>
+<input type="text" id="notes" placeholder="Ej. Guardia, reemplazo...">
+<div class="modal-actions">
+<button type="button" id="cancel">Cancelar</button>
+<button class="primary" type="submit">Guardar turno</button>
+</div>
+</form>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let current=new Date(2026,10,1);
+let selected='2026-11-04';
+let shifts=JSON.parse(localStorage.getItem('turnos-personales-v1')||'[]');
+
+const pad=n=>String(n).padStart(2,'0');
+const key=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const dateText=s=>new Date(s+'T12:00:00').toLocaleDateString('es-PE',
+{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+const save=()=>localStorage.setItem('turnos-personales-v1',JSON.stringify(shifts));
+
+function render(){
+ $('monthTitle').textContent=current.toLocaleDateString('es-PE',
+ {month:'long',year:'numeric'});
+ const first=new Date(current.getFullYear(),current.getMonth(),1);
+ const start=new Date(first);
+ start.setDate(first.getDate()-((first.getDay()+6)%7));
+ let html='';
+ for(let i=0;i<42;i++){
+  const d=new Date(start);d.setDate(start.getDate()+i);
+  const k=key(d);
+  const list=shifts.filter(s=>s.date===k);
+  html+=`<div class="day ${d.getMonth()!==current.getMonth()?'other':''} ${k===selected?'selected':''}" data-date="${k}">
+  <div class="num">${d.getDate()}</div>`;
+  list.forEach(s=>{
+   const cls=s.center==='Ecotem'?'eco':s.type==='N'?'night':'mt';
+   html+=`<span class="tag ${cls}">${s.center==='Ecotem'?'ECO ':''}${s.type}</span>`;
+  });
+  html+='</div>';
+ }
+ $('calendar').innerHTML=html;
+ document.querySelectorAll('.day').forEach(el=>el.onclick=()=>{
+  selected=el.dataset.date;render();
+ });
+ renderDetails();
+}
+
+function renderDetails(){
+ $('selectedTitle').textContent=dateText(selected);
+ const list=shifts.filter(s=>s.date===selected);
+ $('entries').className=list.length?'':'empty';
+ $('entries').innerHTML=list.length?list.map(s=>`
+ <div class="entry">
+ <strong>${s.center} · ${s.type}</strong>
+ <small>${s.start} – ${s.end}${s.end<s.start?' (día siguiente)':''}</small>
+ ${s.notes?`<p>${escapeHtml(s.notes)}</p>`:''}
+ <button onclick="editShift('${s.id}')">Editar</button>
+ <button onclick="deleteShift('${s.id}')">Eliminar</button>
+ </div>`).join(''):'No hay turnos registrados para este día.';
+ const total=shifts.filter(s=>s.date.startsWith(selected.slice(0,7)));
+ $('summary').textContent=`Este mes: ${total.length} turnos registrados.`;
+}
+
+function escapeHtml(v){
+ return v.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+$('prev').onclick=()=>{current.setMonth(current.getMonth()-1);render()};
+$('next').onclick=()=>{current.setMonth(current.getMonth()+1);render()};
+$('add').onclick=()=>{
+ $('shiftForm').reset();$('editId').value='';
+ $('modalTitle').textContent='Añadir turno';
+ $('center').value='Hospital San Martín';$('type').value='MT';
+ $('start').value='';$('end').value='';
+ $('modal').classList.add('open');
+};
+$('cancel').onclick=()=>$('modal').classList.remove('open');
+
+$('center').onchange=()=>{
+ if($('center').value==='Ecotem'){
+  $('type').value='MT';$('type').disabled=true;
+  $('start').value='08:00';$('end').value='19:45';
+ }else{
+  $('type').disabled=false;
+ }
+};
+$('type').onchange=()=>{
+ if($('type').value==='N'){
+  $('start').value='';$('end').value='';
+ }
+};
+
+$('shiftForm').onsubmit=e=>{
+ e.preventDefault();
+ const center=$('center').value,type=$('type').value;
+ if(center==='Ecotem'&&type==='N'){
+  alert('Ecotem no tiene turno nocturno.');return;
+ }
+ const id=$('editId').value||String(Date.now());
+ const item={id,date:selected,center,type,
+ start:$('start').value,end:$('end').value,
+ notes:$('notes').value};
+ if(!item.start||!item.end)return;
+ const others=shifts.filter(s=>s.date===selected&&s.id!==id);
+ const overlaps=others.some(s=>{
+  const a=t=>Number(t.slice(0,2))*60+Number(t.slice(3));
+  let x=a(item.start),y=a(item.end),p=a(s.start),q=a(s.end);
+  if(y<=x)y+=1440;if(q<=p)q+=1440;
+  return x<q&&p<y;
+ });
+ if(overlaps&&!confirm('Hay un posible cruce horario con otro turno. ¿Guardar de todos modos?'))return;
+ shifts=shifts.filter(s=>s.id!==id);
+ shifts.push(item);save();
+ $('modal').classList.remove('open');render();
+};
+
+window.editShift=id=>{
+ const s=shifts.find(x=>x.id===id);if(!s)return;
+ $('editId').value=s.id;$('center').value=s.center;
+ $('type').disabled=s.center==='Ecotem';
+ $('type').value=s.type;$('start').value=s.start;
+ $('end').value=s.end;$('notes').value=s.notes||'';
+ $('modalTitle').textContent='Editar turno';
+ $('modal').classList.add('open');
+};
+window.deleteShift=id=>{
+ if(!confirm('¿Eliminar este turno?'))return;
+ shifts=shifts.filter(s=>s.id!==id);save();render();
+};
+render();
+</script>
+</body>
+</html>
