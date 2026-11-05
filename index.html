@@ -151,7 +151,7 @@ main{min-width:0}.topbar{display:flex;justify-content:space-between;align-items:
  </section>
  <section class="page" id="tools">
   <div class="sectionhead"><div><h2>Herramientas</h2><div class="muted" style="font-size:11px">Utilidades para gestionar tus roles</div></div></div>
-  <div class="grid metrics"><article class="card"><h3>⇩ Copia de seguridad</h3><p class="muted">Guarda una copia de tus turnos para recuperarlos después.</p><button class="primary" onclick="backup()">Exportar datos</button></article><article class="card"><h3>◷ Recordatorios</h3><p class="muted">Recordatorio previsto: una notificación a las 7:00 p. m. del día anterior al inicio de cada bloque de turnos consecutivos del HCMP. El envío automático aún requiere conectar la nube.</p><button class="secondary" onclick="requestNotificationPermission()">Permitir notificaciones</button><p id="notificationStatus" class="muted" style="font-size:11px;margin-top:8px">Estado: sin configurar</p></article><article class="card"><h3>⚙ Privacidad y sincronización</h3><p class="muted">Por ahora los turnos se guardan solo en este navegador. Para sincronizar PC y celular hay que conectar una base de datos privada en la nube. No se debe reutilizar la base de datos del PACS.</p><p class="muted" style="font-size:11px" id="cloudSyncStatus">Estado de nube: sin conectar.</p><button class="secondary" id="connectCloudButton" type="button" onclick="connectCloudAccount()">Conectar con correo (sin contraseña)</button><button class="secondary" type="button" onclick="syncCloudNow()" style="margin-left:6px">Sincronizar ahora</button></article></div>
+  <div class="grid metrics"><article class="card"><h3>⇩ Copia de seguridad</h3><p class="muted">Guarda una copia de tus turnos para recuperarlos después.</p><button class="primary" onclick="backup()">Exportar datos</button></article><article class="card"><h3>◷ Recordatorios</h3><p class="muted">Recordatorio previsto: una notificación a las 7:00 p. m. del día anterior al inicio de cada bloque de turnos consecutivos del HCMP. El envío automático aún requiere conectar la nube.</p><button class="secondary" onclick="requestNotificationPermission()">Permitir notificaciones</button><p id="notificationStatus" class="muted" style="font-size:11px;margin-top:8px">Estado: sin configurar</p></article><article class="card"><h3>⚙ Privacidad y sincronización</h3><p class="muted">Los turnos y notas se sincronizan entre tus dispositivos usando el mismo correo. Los cambios locales se envían automáticamente y los otros dispositivos comprueban cambios periódicamente.</p><p class="muted" style="font-size:11px" id="cloudSyncStatus">Estado de nube: sin conectar.</p><button class="secondary" id="connectCloudButton" type="button" onclick="connectCloudAccount()">Conectar con correo (sin contraseña)</button><button class="secondary" type="button" onclick="syncCloudNow()" style="margin-left:6px">Sincronizar ahora</button></article></div>
  </section>
 </main>
 </div>
@@ -170,7 +170,7 @@ main{min-width:0}.topbar{display:flex;justify-content:space-between;align-items:
 </div>
 <script>
 
-// --- Sincronización Radiology con Supabase ---
+// --- Sincronización bidireccional Radiology con Supabase ---
 const SUPABASE_URL = 'https://znteufkbxcwjzlywdjkv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_enva9VNTuoUuuOoe9Cnu5A_Tf5IVHjQ';
 const cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -178,13 +178,37 @@ let cloudUserId = null;
 let cloudBusy = false;
 let cloudReady = false;
 let cloudSyncTimer = null;
+let cloudPullTimer = null;
+
 function cloudStatus(message) {
   const el = document.getElementById('cloudSyncStatus');
   if (el) el.textContent = 'Estado de nube: ' + message;
 }
 function shiftKey(s) { return [s.date,s.center,s.type].join('|'); }
 function localShiftFromCloud(r) {
-  return {date:r.shift_date,center:r.center,type:r.shift_type,start:String(r.start_time).slice(0,5),end:String(r.end_time).slice(0,5),note:r.note||''};
+  return {
+    date:r.shift_date, center:r.center, type:r.shift_type,
+    start:String(r.start_time || '').slice(0,5),
+    end:String(r.end_time || '').slice(0,5), note:r.note||''
+  };
+}
+function cloudShiftRows() {
+  return shifts.map(s => ({
+    user_id:cloudUserId, shift_date:s.date, center:s.center, shift_type:s.type,
+    start_time:s.start, end_time:s.end, note:s.note||''
+  }));
+}
+async function cloudGetState() {
+  const {data,error} = await cloudClient.from('radiology_sync_state')
+    .select('user_id,initialized').eq('user_id',cloudUserId).maybeSingle();
+  if(error) throw error;
+  return data;
+}
+async function cloudSetInitialized() {
+  const {error} = await cloudClient.from('radiology_sync_state')
+    .upsert({user_id:cloudUserId,initialized:true,updated_at:new Date().toISOString()},
+      {onConflict:'user_id'});
+  if(error) throw error;
 }
 async function connectCloudAccount() {
   const email = prompt('Escribe el mismo correo que usarás en tu celular y PC. Te enviaremos un enlace de acceso; no necesitas contraseña.');
@@ -193,8 +217,12 @@ async function connectCloudAccount() {
     email: email.trim(),
     options: { emailRedirectTo: 'https://hospitalsm.github.io/CALENDARIO-LAGUNA/' }
   });
-  if (error) { cloudStatus('Error al enviar enlace: ' + error.message); alert('No se pudo enviar el enlace: ' + error.message); return; }
-  cloudStatus('Revisa tu correo y abre el enlace en este dispositivo.');
+  if (error) {
+    cloudStatus('Error al enviar enlace: ' + error.message);
+    alert('No se pudo enviar el enlace: ' + error.message);
+    return;
+  }
+  cloudStatus('revisa tu correo y abre el enlace en este dispositivo.');
   alert('Te enviamos un enlace de acceso. Ábrelo desde este mismo dispositivo. Usa el mismo correo en tu otro dispositivo.');
 }
 async function cloudInitialize() {
@@ -212,57 +240,66 @@ async function cloudInitialize() {
         cloudUserId = sessionNow.user.id;
         setTimeout(() => cloudMergeInitial(), 0);
       } else {
-        cloudUserId = null; cloudReady = false;
+        cloudUserId = null;
+        cloudReady = false;
+        clearInterval(cloudPullTimer);
         cloudStatus('sesión cerrada.');
       }
     });
-  } catch(e) { console.error(e); cloudStatus('error: ' + e.message); }
-}
-async function cloudMergeInitial() {
-  if(!cloudUserId || cloudBusy) return;
-  cloudBusy = true; cloudReady = false;
-  try {
-    const {data:remote,error} = await cloudClient.from('radiology_shifts').select('*').eq('user_id',cloudUserId);
-    if(error) throw error;
-    const merged = new Map();
-    (remote||[]).forEach(r => merged.set(shiftKey(localShiftFromCloud(r)), localShiftFromCloud(r)));
-    shifts.forEach(s => merged.set(shiftKey(s), s));
-    shifts = Array.from(merged.values());
-    localStorage.setItem('swanneshift_shifts', JSON.stringify(shifts));
-    await cloudSaveShifts();
-    await cloudMergeNotes();
-    cloudReady = true;
-    cloudStatus('conectada. Turnos y notas sincronizados.');
-    renderCalendar();
   } catch(e) {
-    console.error('Error de sincronización inicial:',e);
+    console.error(e);
     cloudStatus('error: ' + e.message);
-  } finally { cloudBusy = false; }
+  }
 }
-async function cloudSaveShifts() {
+async function cloudFetchShifts() {
+  const {data,error} = await cloudClient.from('radiology_shifts')
+    .select('*').eq('user_id',cloudUserId);
+  if(error) throw error;
+  return data || [];
+}
+async function cloudReplaceLocalWithRemote(remote) {
+  shifts = remote.map(localShiftFromCloud);
+  localStorage.setItem('swanneshift_shifts',JSON.stringify(shifts));
+  renderCalendar();
+}
+async function cloudPushShifts() {
   if(!cloudUserId) return;
-  const rows = shifts.map(s => ({
-    user_id:cloudUserId, shift_date:s.date, center:s.center, shift_type:s.type,
-    start_time:s.start, end_time:s.end, note:s.note||''
-  }));
+  const rows = cloudShiftRows();
   if(rows.length) {
     const {error} = await cloudClient.from('radiology_shifts')
       .upsert(rows,{onConflict:'user_id,shift_date,center,shift_type'});
     if(error) throw error;
   }
+  // La nube representa el calendario completo de esta cuenta; las ausencias son eliminaciones.
   const keep = new Set(shifts.map(shiftKey));
-  const {data:remote,error:readError} = await cloudClient.from('radiology_shifts')
-    .select('id,shift_date,center,shift_type').eq('user_id',cloudUserId);
-  if(readError) throw readError;
-  const obsolete = (remote||[]).filter(r => !keep.has([r.shift_date,r.center,r.shift_type].join('|'))).map(r=>r.id);
+  const remote = await cloudFetchShifts();
+  const obsolete = remote
+    .filter(r => !keep.has([r.shift_date,r.center,r.shift_type].join('|')))
+    .map(r => r.id).filter(Boolean);
   if(obsolete.length) {
-    const {error} = await cloudClient.from('radiology_shifts').delete().in('id',obsolete);
+    const {error} = await cloudClient.from('radiology_shifts')
+      .delete().in('id',obsolete);
     if(error) throw error;
   }
+  await cloudSetInitialized();
+}
+async function cloudPullShifts() {
+  if(!cloudUserId) return;
+  const [state,remote] = await Promise.all([cloudGetState(),cloudFetchShifts()]);
+  if(!state?.initialized && remote.length===0) {
+    // Primera conexión de la cuenta: si todavía no existe calendario en la nube,
+    // el dispositivo que inicia la cuenta publica su calendario local.
+    await cloudPushShifts();
+    return;
+  }
+  // Con la cuenta inicializada, la nube es la fuente de verdad, incluso si está vacía.
+  await cloudReplaceLocalWithRemote(remote);
+  if(!state?.initialized) await cloudSetInitialized();
 }
 async function cloudMergeNotes() {
   if(!cloudUserId) return;
-  const {data:remote,error} = await cloudClient.from('radiology_day_notes').select('*').eq('user_id',cloudUserId);
+  const {data:remote,error} = await cloudClient.from('radiology_day_notes')
+    .select('*').eq('user_id',cloudUserId);
   if(error) throw error;
   const remoteByDate = new Map((remote||[]).map(r=>[r.note_date,r]));
   const merged = {...dayNotes};
@@ -282,24 +319,83 @@ async function cloudMergeNotes() {
     updated_at:dayNoteUpdated[date] || new Date().toISOString()
   }));
   if(rows.length) {
-    const {error:upsertError} = await cloudClient.from('radiology_day_notes').upsert(rows,{onConflict:'user_id,note_date'});
+    const {error:upsertError} = await cloudClient.from('radiology_day_notes')
+      .upsert(rows,{onConflict:'user_id,note_date'});
     if(upsertError) throw upsertError;
   }
 }
-async function syncCloudNow() {
-  if(!cloudUserId) { await connectCloudAccount(); return; }
+async function cloudMergeInitial() {
+  if(!cloudUserId || cloudBusy) return;
+  cloudBusy = true;
+  cloudReady = false;
   try {
-    await cloudSaveShifts();
+    await cloudPullShifts();
+    await cloudMergeNotes();
+    cloudReady = true;
+    cloudStatus('conectada. Turnos y notas sincronizados.');
+    renderCalendar();
+    clearInterval(cloudPullTimer);
+    cloudPullTimer = setInterval(cloudPullInBackground,7000);
+  } catch(e) {
+    console.error('Error de sincronización inicial:',e);
+    cloudStatus('error: ' + e.message);
+  } finally {
+    cloudBusy = false;
+  }
+}
+async function cloudPullInBackground() {
+  if(!cloudUserId || !cloudReady || cloudBusy || document.hidden) return;
+  cloudBusy = true;
+  try {
+    await cloudPullShifts();
+    await cloudMergeNotes();
+    cloudStatus('conectada. Cambios comprobados.');
+  } catch(e) {
+    console.error('Error al descargar cambios:',e);
+    cloudStatus('error al actualizar: ' + e.message);
+  } finally {
+    cloudBusy = false;
+  }
+}
+async function syncCloudNow() {
+  if(!cloudUserId) {
+    await connectCloudAccount();
+    return;
+  }
+  if(cloudBusy) {
+    cloudStatus('sincronización en curso; espera unos segundos.');
+    return;
+  }
+  clearTimeout(cloudSyncTimer);
+  cloudBusy = true;
+  try {
+    // El botón descarga lo que ya está en la nube; las ediciones locales se publican automáticamente.
+    await cloudPullShifts();
     await cloudMergeNotes();
     cloudStatus('sincronización completada.');
-  } catch(e) { console.error(e); cloudStatus('error: '+e.message); }
+  } catch(e) {
+    console.error(e);
+    cloudStatus('error: ' + e.message);
+  } finally {
+    cloudBusy = false;
+  }
 }
 function scheduleCloudSync() {
   if(!cloudUserId || !cloudReady || cloudBusy) return;
   clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(async()=>{
-    try { await cloudSaveShifts(); await cloudMergeNotes(); cloudStatus('actualizada automáticamente.'); }
-    catch(e) { console.error(e); cloudStatus('error al sincronizar: '+e.message); }
+    if(!cloudUserId || cloudBusy) return;
+    cloudBusy = true;
+    try {
+      await cloudPushShifts();
+      await cloudMergeNotes();
+      cloudStatus('cambios enviados automáticamente.');
+    } catch(e) {
+      console.error(e);
+      cloudStatus('error al enviar cambios: ' + e.message);
+    } finally {
+      cloudBusy = false;
+    }
   },700);
 }
 
